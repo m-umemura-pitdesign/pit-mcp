@@ -220,6 +220,19 @@ class ParkingMCPServer:
             result = self.tools.get_query_statistics()
         elif name == "clear_query_history":
             result = self.tools.clear_query_history()
+        elif name == "get_store_servers":
+            result = await self.tools.get_store_servers(
+                store_name=arguments.get("store_name")
+            )
+        elif name == "get_entry_exit_history":
+            result = await self.tools.get_entry_exit_history(
+                store_id=arguments.get("store_id"),
+                parking_id=arguments.get("parking_id"),
+                car_number=arguments.get("car_number"),
+                date_from=arguments.get("date_from"),
+                date_to=arguments.get("date_to"),
+                limit=arguments.get("limit", 100)
+            )
         else:
             return {
                 "success": False,

@@ -9,6 +9,14 @@
 - 課金設定の取得（再課金猶予時間、夜間料金など）
 - 読み取り専用SQLの実行
 - スキーマコンテキストによる業務理解支援
+- クエリ履歴の管理・統計
+- 店舗WebDBへの動的接続（入出庫履歴取得）
+
+### DB階層構造
+```
+Commons DB（親）
+  └── 店舗WebDB（stores.domain/port）← 動的接続
+```
 
 ## セットアップ
 
@@ -25,19 +33,38 @@ cp .env.example .env
 # .env ファイルを編集してデータベース接続情報を設定
 ```
 
+必要な環境変数：
+
+```bash
+# Commons DB接続
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=readonly_user
+DB_PASSWORD=xxx
+DB_NAME=commons_management_api_development
+DB_READ_ONLY=true
+
+# 店舗WebDB接続（stores.domain/portで各店舗に接続する際の認証情報）
+STORE_DB_USER=readonly_user
+STORE_DB_PASSWORD=xxx
+STORE_DB_NAME=smartparkdb_phase3
+```
+
 ### 3. データベースユーザーの作成（推奨）
 
 ```sql
--- 読み取り専用ユーザーを作成
+-- Commons DB用：読み取り専用ユーザーを作成
 CREATE USER 'readonly_user'@'%' IDENTIFIED BY 'secure_password';
 
 -- SELECT権限のみを付与
-GRANT SELECT ON parking_system.parkings TO 'readonly_user'@'%';
-GRANT SELECT ON parking_system.parking_configs TO 'readonly_user'@'%';
-GRANT SELECT ON parking_system.parking_rates TO 'readonly_user'@'%';
-GRANT SELECT ON parking_system.parking_sessions TO 'readonly_user'@'%';
+GRANT SELECT ON commons_management_api_development.* TO 'readonly_user'@'%';
 
 FLUSH PRIVILEGES;
+```
+
+```sql
+-- 店舗WebDB用：各店舗DBで同様に設定
+GRANT SELECT ON smartparkdb_phase3.tbl_in_out_mgr TO 'readonly_user'@'%';
 ```
 
 ### 4. サーバーの起動
@@ -63,7 +90,10 @@ mcp-parking-server
         "DB_PORT": "3306",
         "DB_USER": "readonly_user",
         "DB_PASSWORD": "secure_password",
-        "DB_NAME": "parking_system"
+        "DB_NAME": "commons_management_api_development",
+        "STORE_DB_USER": "readonly_user",
+        "STORE_DB_PASSWORD": "secure_password",
+        "STORE_DB_NAME": "smartparkdb_phase3"
       }
     }
   }
@@ -71,6 +101,8 @@ mcp-parking-server
 ```
 
 ## ツール一覧
+
+### Commons DB操作
 
 | ツール名 | 説明 |
 |---------|------|
@@ -82,6 +114,22 @@ mcp-parking-server
 | `explain_term` | 業務用語を説明 |
 | `suggest_approach` | クエリアプローチを提案 |
 
+### クエリ履歴
+
+| ツール名 | 説明 |
+|---------|------|
+| `get_query_history` | クエリ履歴一覧を取得 |
+| `get_query_history_detail` | クエリ履歴の詳細を取得 |
+| `get_query_statistics` | クエリ実行の統計情報を取得 |
+| `clear_query_history` | クエリ履歴をクリア |
+
+### 店舗WebDB操作
+
+| ツール名 | 説明 |
+|---------|------|
+| `get_store_servers` | 接続可能な店舗WebDB一覧を取得 |
+| `get_entry_exit_history` | 店舗WebDBから入出庫履歴を取得 |
+
 ## プロジェクト構造
 
 ```
@@ -89,9 +137,11 @@ mcp-parking-server/
 ├── src/
 │   ├── __init__.py
 │   ├── server.py          # MCPサーバー本体
-│   ├── database.py        # データベース接続
+│   ├── database.py        # Commons DB接続
+│   ├── store_database.py  # 店舗WebDB動的接続
 │   ├── schema_context.py  # スキーマコンテキスト管理
 │   ├── sql_validator.py   # SQLバリデーション
+│   ├── query_history.py   # クエリ履歴管理
 │   └── tools.py           # ツール定義
 ├── config/
 │   └── schema_context.json # スキーマ定義
@@ -179,11 +229,16 @@ SQLインジェクション対策として、以下の関数を禁止：
 アクセス可能なテーブルを明示的に制限：
 
 ```python
+# Commons DB
 ALLOWED_TABLES = [
-    "parkings",
-    "parking_configs",
-    "parking_rates",
-    "parking_sessions",
+    "parkings", "stores", "servers", "labels",
+    "vehicles", "unpaid_information", "paid_arrears",
+    # ... など
+]
+
+# 店舗WebDB
+ALLOWED_STORE_TABLES = [
+    "tbl_in_out_mgr",
 ]
 ```
 
@@ -232,11 +287,11 @@ pool_max_size=5
 -- 最小権限の原則に従ったユーザー作成
 CREATE USER 'mcp_readonly'@'%' IDENTIFIED BY 'strong_password';
 
--- 必要なテーブルにのみSELECT権限を付与
-GRANT SELECT ON parking_system.parkings TO 'mcp_readonly'@'%';
-GRANT SELECT ON parking_system.parking_configs TO 'mcp_readonly'@'%';
-GRANT SELECT ON parking_system.parking_rates TO 'mcp_readonly'@'%';
-GRANT SELECT ON parking_system.parking_sessions TO 'mcp_readonly'@'%';
+-- Commons DB：必要なテーブルにのみSELECT権限を付与
+GRANT SELECT ON commons_management_api_development.parkings TO 'mcp_readonly'@'%';
+GRANT SELECT ON commons_management_api_development.stores TO 'mcp_readonly'@'%';
+GRANT SELECT ON commons_management_api_development.servers TO 'mcp_readonly'@'%';
+-- ... 他のテーブルも同様
 
 -- 権限を反映
 FLUSH PRIVILEGES;
@@ -269,12 +324,12 @@ logger.info(f"Tool called: {name} with args: {arguments}")
 
 ### 6.1 個人情報の取り扱い
 
-`parking_sessions.vehicle_number`（車両番号）は個人情報に該当する可能性があります。
+車両番号（`vehicles.car_number`、`tbl_in_out_mgr.CAR_NUMBER`）は個人情報に該当する可能性があります。
 スキーマコンテキストでこれを明示し、不必要なアクセスを抑制します：
 
 ```json
 {
-  "privacy_note": "vehicle_number は個人情報に該当する可能性があるため、必要最小限の参照に留める"
+  "privacy_note": "車両番号は個人情報に該当する可能性があるため、必要最小限の参照に留める"
 }
 ```
 
@@ -285,9 +340,9 @@ logger.info(f"Tool called: {name} with args: {arguments}")
 ```sql
 -- マスキングの例
 SELECT
-    id,
-    CONCAT(LEFT(vehicle_number, 2), '****') as vehicle_number_masked
-FROM parking_sessions
+    INOUT_NO,
+    CONCAT('****', RIGHT(CAR_NUMBER, 2)) as car_number_masked
+FROM tbl_in_out_mgr
 ```
 
 ## 7. 障害対策
@@ -303,7 +358,8 @@ FROM parking_sessions
 
 デプロイ前に以下を確認してください：
 
-- [ ] データベースユーザーはSELECT権限のみ持っている
+- [ ] Commons DBユーザーはSELECT権限のみ持っている
+- [ ] 店舗WebDBユーザーはSELECT権限のみ持っている
 - [ ] 環境変数でパスワードを管理している（ハードコードしていない）
 - [ ] リードレプリカまたは専用の参照用DBに接続している
 - [ ] ネットワークアクセスが制限されている（VPC内など）

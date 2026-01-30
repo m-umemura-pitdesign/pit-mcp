@@ -72,7 +72,7 @@ FORBIDDEN_FUNCTIONS = [
     "INTO DUMPFILE",
 ]
 
-# 許可されたテーブル（ホワイトリスト）
+# 許可されたテーブル（ホワイトリスト）- Commons DB
 ALLOWED_TABLES = [
     # 駐車場・物件関連
     "parkings",
@@ -123,6 +123,12 @@ ALLOWED_TABLES = [
     "erp_code_map",
     "lock_vehicles",
     "accessible_vehicle_reasons",
+]
+
+# 許可されたテーブル（ホワイトリスト）- 店舗DB
+ALLOWED_STORE_TABLES = [
+    # 入出庫管理
+    "tbl_in_out_mgr",
 ]
 
 # LIMIT の最大値

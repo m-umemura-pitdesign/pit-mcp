@@ -560,6 +560,88 @@
       "note": "stay_0000〜stay_2330まで30分刻みで空車室数を記録"
     }
   },
+  "store_database_tables": {
+    "tbl_in_out_mgr": {
+      "description": "入出庫管理テーブル（店舗DB）",
+      "business_context": "各店舗のローカルサーバーDBに存在する入出庫履歴テーブル。車両の入庫・出庫・精算状態を記録。",
+      "database": "smartparkdb_phase3",
+      "columns": {
+        "INOUT_NO": {
+          "type": "BIGINT",
+          "description": "リスト番号（主キー）",
+          "business_meaning": "入出庫レコードを一意に識別するID"
+        },
+        "ENTRANT_NO": {
+          "type": "INT",
+          "description": "入庫番号",
+          "business_meaning": "駐車場ごとの連番。同一車両の再入庫時は新規番号が付与される"
+        },
+        "ENTRANT_DTE": {
+          "type": "DATE",
+          "description": "入庫日",
+          "business_meaning": "入庫した日付（日付のみ）"
+        },
+        "PARKING_ID": {
+          "type": "INT",
+          "description": "駐車場ID",
+          "business_meaning": "店舗内での駐車場識別番号（pid相当）"
+        },
+        "ENTRANT_TIME": {
+          "type": "DATETIME",
+          "description": "入庫時間",
+          "business_meaning": "車両が入庫した日時"
+        },
+        "EXIT_TIME": {
+          "type": "DATETIME",
+          "description": "出庫時間",
+          "business_meaning": "車両が出庫した日時。NULLは在庫中"
+        },
+        "VEHICLE_STATUS_ID": {
+          "type": "INT",
+          "description": "車両ステータス",
+          "business_meaning": "0=入庫中、1=未精算出庫、2=出庫済"
+        },
+        "CHECKOUT_FLG": {
+          "type": "INT",
+          "description": "精算フラグ",
+          "business_meaning": "0=未精算、1=精算済"
+        },
+        "PLACE": {
+          "type": "VARCHAR(10)",
+          "description": "地域",
+          "business_meaning": "ナンバープレートの地域名（例：品川、練馬）"
+        },
+        "CLASS_NUMBER": {
+          "type": "VARCHAR(10)",
+          "description": "分類番号",
+          "business_meaning": "ナンバープレートの分類番号（例：300、500）"
+        },
+        "KANA": {
+          "type": "VARCHAR(5)",
+          "description": "かな",
+          "business_meaning": "ナンバープレートのひらがな"
+        },
+        "CAR_NUMBER": {
+          "type": "VARCHAR(10)",
+          "description": "車両番号",
+          "business_meaning": "ナンバープレートの4桁番号"
+        }
+      },
+      "business_rules": [
+        {
+          "rule_id": "VEHICLE_STATUS",
+          "description": "車両ステータスの意味",
+          "logic": "0=入庫中（在庫）、1=未精算出庫（料金未払いで出庫）、2=出庫済（正常出庫）"
+        },
+        {
+          "rule_id": "CHECKOUT_FLAG",
+          "description": "精算フラグの意味",
+          "logic": "0=未精算、1=精算済。VEHICLE_STATUS_ID=1 かつ CHECKOUT_FLG=0 は未払い状態"
+        }
+      ],
+      "access_note": "このテーブルはCommons DBではなく、各店舗のWebDBサーバーに存在する。stores.domain/portを使用して接続する必要がある。"
+    }
+  },
   "glossary": {
     "再課金猶予時間": "出庫後に再入庫した際、一定時間内であれば新たな課金が発生しない猶予期間（分単位）",
     "ERPコード": "社内管理用の物件識別コード",
@@ -568,7 +650,11 @@
     "精算不要車両": "料金を請求しない車両（ホワイトリスト登録車両）",
     "デフォルト値": "個別設定がない場合に適用されるシステム全体の標準値",
     "gid": "サーバーグループID。3=ローカルサーバー、5=SSHサーバーなど",
-    "pid": "駐車場ID。ローカルサーバー上での駐車場識別番号"
+    "pid": "駐車場ID。ローカルサーバー上での駐車場識別番号",
+    "店舗DB": "stores.domain/portで接続するWebDBサーバー上のMySQL DB。Commons DBとは別で、入出庫履歴などを管理",
+    "入出庫履歴": "車両の入庫・出庫記録。tbl_in_out_mgrテーブルに格納される",
+    "VEHICLE_STATUS_ID": "車両ステータス。0=入庫中、1=未精算出庫、2=出庫済",
+    "CHECKOUT_FLG": "精算フラグ。0=未精算、1=精算済"
   },
   "query_patterns": {
     "identify_parking": {

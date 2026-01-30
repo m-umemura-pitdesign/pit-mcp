@@ -8,6 +8,7 @@ from typing import Any
 
 from .database import ReadOnlyDatabase, QueryResult
 from .schema_context import SchemaContext
+from .store_database import StoreDatabase, StoreDBError
 
 
 @dataclass
@@ -490,6 +491,185 @@ class ParkingTools:
             message=f"{count}件の履歴を削除しました"
         )
 
+    # ========================================
+    # Tool: get_store_servers
+    # ========================================
+    async def get_store_servers(
+        self,
+        store_name: str | None = None
+    ) -> ToolResponse:
+        """
+        接続可能な店舗WebDB一覧を取得する
+
+        Args:
+            store_name: 店舗名で絞り込み（部分一致）
+
+        Returns:
+            ToolResponse: 店舗WebDB一覧
+        """
+        # stores.domain/port でWebDBに接続
+        query = """
+            SELECT
+                s.id,
+                s.name,
+                s.domain,
+                s.port,
+                s.is_outage
+            FROM stores s
+            WHERE s.domain IS NOT NULL
+              AND s.domain != ''
+              AND s.port IS NOT NULL
+        """
+        params: list[Any] = []
+
+        if store_name:
+            query += " AND s.name LIKE %s"
+            params.append(f"%{store_name}%")
+
+        query += " ORDER BY s.id LIMIT 100"
+
+        result = await self.db.execute_query(
+            query,
+            tuple(params) if params else None,
+            tool_name="get_store_servers"
+        )
+
+        if not result.success:
+            return ToolResponse(
+                success=False,
+                data=None,
+                message=result.message
+            )
+
+        if not result.data:
+            return ToolResponse(
+                success=True,
+                data=[],
+                message="該当する店舗WebDBが見つかりませんでした",
+                context="検索条件を変えて再度お試しください"
+            )
+
+        return ToolResponse(
+            success=True,
+            data=result.data,
+            message=f"{len(result.data)}件の店舗WebDBが見つかりました",
+            context="store_id を使って get_entry_exit_history で入出庫履歴を取得できます"
+        )
+
+    # ========================================
+    # Tool: get_entry_exit_history
+    # ========================================
+    async def get_entry_exit_history(
+        self,
+        store_id: int,
+        parking_id: int | None = None,
+        car_number: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        limit: int = 100
+    ) -> ToolResponse:
+        """
+        店舗WebDBから入出庫履歴を取得する
+
+        Args:
+            store_id: 店舗ID（必須）
+            parking_id: 駐車場ID（フィルタ）
+            car_number: 車両番号（部分一致フィルタ）
+            date_from: 開始日（YYYY-MM-DD形式）
+            date_to: 終了日（YYYY-MM-DD形式）
+            limit: 取得件数（デフォルト100、最大1000）
+
+        Returns:
+            ToolResponse: 入出庫履歴
+        """
+        # 1. 店舗情報を取得（Commons DBから）
+        store_query = """
+            SELECT id, name, domain, port, is_outage
+            FROM stores
+            WHERE id = %s
+              AND domain IS NOT NULL
+              AND domain != ''
+              AND port IS NOT NULL
+            LIMIT 1
+        """
+        store_result = await self.db.execute_query(
+            store_query,
+            (store_id,),
+            tool_name="get_entry_exit_history"
+        )
+
+        if not store_result.success:
+            return ToolResponse(
+                success=False,
+                data=None,
+                message=f"店舗情報の取得に失敗しました: {store_result.message}"
+            )
+
+        if not store_result.data:
+            return ToolResponse(
+                success=False,
+                data=None,
+                message=f"店舗ID {store_id} が見つかりません（domain/portが設定されている店舗のみ対象）"
+            )
+
+        store_info = store_result.data[0]
+        domain = store_info.get("domain")
+        port = store_info.get("port")
+
+        if not domain or not port:
+            return ToolResponse(
+                success=False,
+                data=None,
+                message=f"店舗 {store_id} の接続情報が不完全です（domain/portが未設定）"
+            )
+
+        # ポートを整数に変換
+        try:
+            port = int(port)
+        except (ValueError, TypeError):
+            return ToolResponse(
+                success=False,
+                data=None,
+                message=f"店舗 {store_id} のポート番号が不正です: {port}"
+            )
+
+        # 2. 店舗WebDBに接続して入出庫履歴を取得
+        store_db = None
+        try:
+            store_db = await StoreDatabase.connect(address=domain, port=port)
+            history = await store_db.get_entry_exit_history(
+                parking_id=parking_id,
+                car_number=car_number,
+                date_from=date_from,
+                date_to=date_to,
+                limit=limit
+            )
+
+            store_name = store_info.get("name", f"ID:{store_id}")
+
+            context_lines = [
+                f"接続先: {domain}:{port}",
+                f"店舗名: {store_name}",
+            ]
+
+            return ToolResponse(
+                success=True,
+                data=history,
+                message=f"{len(history)}件の入出庫履歴を取得しました",
+                context="\n".join(context_lines)
+            )
+
+        except StoreDBError as e:
+            return ToolResponse(
+                success=False,
+                data=None,
+                message=f"店舗WebDB接続エラー: {str(e)}",
+                context=f"接続先: {domain}:{port}"
+            )
+        finally:
+            if store_db:
+                await store_db.disconnect()
+
 
 # ツール定義（MCP形式）
 TOOL_DEFINITIONS = [
@@ -657,6 +837,54 @@ TOOL_DEFINITIONS = [
         "inputSchema": {
             "type": "object",
             "properties": {}
+        }
+    },
+    {
+        "name": "get_store_servers",
+        "description": "接続可能な店舗WebDB一覧を取得します。stores.domain/portで接続可能な店舗の一覧を返します。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "store_name": {
+                    "type": "string",
+                    "description": "店舗名で絞り込み（部分一致）"
+                }
+            }
+        }
+    },
+    {
+        "name": "get_entry_exit_history",
+        "description": "店舗WebDBから入出庫履歴（tbl_in_out_mgr）を取得します。store_idで指定した店舗のWebDBに接続し、入出庫データを取得します。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "store_id": {
+                    "type": "integer",
+                    "description": "店舗ID（必須。get_store_serversで取得したidを指定）"
+                },
+                "parking_id": {
+                    "type": "integer",
+                    "description": "駐車場IDでフィルタ"
+                },
+                "car_number": {
+                    "type": "string",
+                    "description": "車両番号でフィルタ（部分一致）"
+                },
+                "date_from": {
+                    "type": "string",
+                    "description": "開始日（YYYY-MM-DD形式）"
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "終了日（YYYY-MM-DD形式）"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "取得件数（デフォルト100、最大1000）",
+                    "default": 100
+                }
+            },
+            "required": ["store_id"]
         }
     }
 ]
