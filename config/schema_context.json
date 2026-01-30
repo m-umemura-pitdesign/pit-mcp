@@ -1,0 +1,600 @@
+{
+  "version": "1.0.0",
+  "description": "駐車場管理システム（commons_management_api）のスキーマコンテキスト定義",
+  "database": "commons_management_api_development",
+  "tables": {
+    "parkings": {
+      "description": "駐車場テーブル",
+      "business_context": "物件内の各駐車場（フロア単位など）を管理する。stores（物件）に紐づく。",
+      "columns": {
+        "id": {
+          "type": "BIGINT",
+          "description": "駐車場ID（主キー）",
+          "business_meaning": "駐車場を一意に識別するID"
+        },
+        "store_id": {
+          "type": "BIGINT",
+          "description": "物件ID（外部キー）",
+          "business_meaning": "stores.id への参照。1つの物件に複数の駐車場が存在可能"
+        },
+        "pid": {
+          "type": "INT",
+          "description": "駐車場番号",
+          "business_meaning": "servers.pid を格納。ローカルサーバー上での駐車場識別番号"
+        },
+        "name": {
+          "type": "VARCHAR(255)",
+          "description": "駐車場名",
+          "business_meaning": "「〇〇物件 1F」「〇〇物件 2F」などの表示名"
+        },
+        "erp_code": {
+          "type": "VARCHAR(50)",
+          "description": "ERPコード",
+          "business_meaning": "社内管理用コード。未定の場合はNULL"
+        },
+        "ip_address": {
+          "type": "VARCHAR(255)",
+          "description": "ローカルサーバーIPアドレス"
+        },
+        "port": {
+          "type": "INT",
+          "description": "MySQLポート番号"
+        },
+        "capacity": {
+          "type": "INT",
+          "description": "駐車可能台数（車室数）",
+          "business_meaning": "この駐車場の最大収容台数"
+        },
+        "is_outage": {
+          "type": "TINYINT(1)",
+          "description": "停止中フラグ",
+          "business_meaning": "true=停電や一時的な運用中断で停止中、false=通常稼働中"
+        },
+        "opend_at": {
+          "type": "DATETIME",
+          "description": "営業開始日",
+          "business_meaning": "未定の場合はNULL、開始日不明な既存物件は1900/01/01"
+        },
+        "default_re_charge_time": {
+          "type": "INT",
+          "description": "デフォルト再課金猶予時間（分）",
+          "business_meaning": "出庫後この時間内に再入庫した場合、新たな課金が発生しない猶予時間",
+          "default_value": 0
+        }
+      },
+      "business_rules": [
+        {
+          "rule_id": "RECHARGE_GRACE",
+          "description": "再課金猶予時間の適用ルール",
+          "logic": "default_re_charge_time の値（分）が再課金猶予時間。0の場合は猶予なし。"
+        }
+      ],
+      "common_queries": [
+        "物件名での検索",
+        "ERPコードでの特定",
+        "再課金猶予時間の確認",
+        "稼働状態の確認"
+      ]
+    },
+    "stores": {
+      "description": "物件テーブル",
+      "business_context": "駐車場を持つ物件（建物・施設）を管理する。1つの物件に複数の駐車場（parkings）が紐づく。",
+      "columns": {
+        "id": {
+          "type": "BIGINT",
+          "description": "物件ID（主キー）"
+        },
+        "name": {
+          "type": "VARCHAR(255)",
+          "description": "物件名称",
+          "business_meaning": "「〇〇物件」などの物件名。複数駐車場を持つ場合の親名称"
+        },
+        "domain": {
+          "type": "VARCHAR(255)",
+          "description": "DNS名称",
+          "business_meaning": "smp2-xxx.sub.pitdesign.jp 形式"
+        },
+        "port": {
+          "type": "INT",
+          "description": "MySQLポート番号"
+        },
+        "is_outage": {
+          "type": "TINYINT(1)",
+          "description": "停止中フラグ",
+          "business_meaning": "true=停止中、false=通常稼働中"
+        },
+        "opend_at": {
+          "type": "DATETIME",
+          "description": "営業開始日"
+        }
+      }
+    },
+    "servers": {
+      "description": "サーバー情報テーブル",
+      "business_context": "各駐車場のローカルサーバー情報を管理。gid（グループID）によって役割が異なる。",
+      "columns": {
+        "id": {
+          "type": "INT",
+          "description": "サーバーID（主キー）"
+        },
+        "lid": {
+          "type": "INT",
+          "description": "ラベルID",
+          "business_meaning": "labels.id への参照。物件を識別"
+        },
+        "gid": {
+          "type": "INT",
+          "description": "グループID",
+          "business_meaning": "サーバー種別。3=ローカルサーバー、5=SSHサーバーなど"
+        },
+        "store_id": {
+          "type": "BIGINT",
+          "description": "物件ID（外部キー）"
+        },
+        "erp_code": {
+          "type": "VARCHAR(50)",
+          "description": "ERPコード",
+          "business_meaning": "gid=3のレコードで定義される"
+        },
+        "product_id": {
+          "type": "INT",
+          "description": "製品ID"
+        },
+        "pid": {
+          "type": "INT",
+          "description": "駐車場ID（ローカルサーバー上）"
+        },
+        "address": {
+          "type": "VARCHAR(365)",
+          "description": "ホストアドレス"
+        },
+        "port": {
+          "type": "VARCHAR(5)",
+          "description": "ポート番号"
+        },
+        "note": {
+          "type": "VARCHAR(365)",
+          "description": "店舗名称（物件名称）"
+        },
+        "unpaid_share_flg": {
+          "type": "TINYINT(1)",
+          "description": "未払い共有フラグ",
+          "business_meaning": "0=共有なし、1=共有中"
+        },
+        "outage_flag": {
+          "type": "TINYINT(1)",
+          "description": "集計対象外フラグ",
+          "business_meaning": "true=停止中で集計対象外"
+        },
+        "removal_flag": {
+          "type": "TINYINT(1)",
+          "description": "撤去フラグ"
+        },
+        "max_free_time": {
+          "type": "INT",
+          "description": "最大無料時間",
+          "business_meaning": "この駐車場の最大無料時間（分）"
+        },
+        "white_list_delete_period": {
+          "type": "INT",
+          "description": "精算不要車両自動削除期間",
+          "business_meaning": "有効期限設定なし精算不要車両を自動削除対象とする直近利用なし日数"
+        }
+      }
+    },
+    "labels": {
+      "description": "ラベル（物件識別）テーブル",
+      "business_context": "Webサーバー単位での物件識別に使用。",
+      "columns": {
+        "id": {
+          "type": "INT",
+          "description": "ラベルID（主キー）"
+        },
+        "label": {
+          "type": "VARCHAR(50)",
+          "description": "物件名"
+        },
+        "uuid": {
+          "type": "VARCHAR(255)",
+          "description": "UUID"
+        },
+        "unpaid_exclusive_payment_flg": {
+          "type": "TINYINT",
+          "description": "まとめ払い可否フラグ",
+          "business_meaning": "0=他物件とまとめて支払い可能、1=当該物件のみ支払い可能"
+        },
+        "opened_at": {
+          "type": "DATE",
+          "description": "開業日"
+        }
+      }
+    },
+    "vehicles": {
+      "description": "車両情報テーブル",
+      "business_context": "駐車場を利用する車両のナンバー情報を管理。",
+      "columns": {
+        "id": {
+          "type": "INT",
+          "description": "車両ID（主キー）"
+        },
+        "place": {
+          "type": "VARCHAR(255)",
+          "description": "地域",
+          "business_meaning": "ナンバープレートの地域名（例：品川、練馬）"
+        },
+        "class_number": {
+          "type": "VARCHAR(255)",
+          "description": "分類番号",
+          "business_meaning": "ナンバープレートの分類番号（例：300、500）"
+        },
+        "kana": {
+          "type": "VARCHAR(255)",
+          "description": "かな",
+          "business_meaning": "ナンバープレートのひらがな"
+        },
+        "car_number": {
+          "type": "VARCHAR(255)",
+          "description": "車番",
+          "business_meaning": "ナンバープレートの4桁番号"
+        },
+        "in_use_label_id": {
+          "type": "INT",
+          "description": "使用中ラベルID",
+          "business_meaning": "未払い情報使用中サーバーID（Webサーバー単位でロック）"
+        }
+      },
+      "privacy_note": "車両番号は個人情報に該当する可能性があるため、必要最小限の参照に留める"
+    },
+    "unpaid_information": {
+      "description": "未払い情報テーブル",
+      "business_context": "全店舗共通の未払い情報を管理。車両ごとの未払い精算金額や違約金を記録。",
+      "columns": {
+        "id": {
+          "type": "INT",
+          "description": "全店舗共通未払いID（主キー）"
+        },
+        "unpaid_id": {
+          "type": "INT",
+          "description": "店舗毎の未払いID"
+        },
+        "server_id": {
+          "type": "INT",
+          "description": "サーバーID（外部キー）",
+          "business_meaning": "発生元のローカルサーバー"
+        },
+        "label_id": {
+          "type": "INT",
+          "description": "ラベルID"
+        },
+        "entrant_dte": {
+          "type": "DATETIME",
+          "description": "入庫日"
+        },
+        "entrant_no": {
+          "type": "INT",
+          "description": "入庫番号"
+        },
+        "parking_name": {
+          "type": "VARCHAR(32)",
+          "description": "駐車場名"
+        },
+        "vehicle_id": {
+          "type": "INT",
+          "description": "車両ID（外部キー）"
+        },
+        "entrant_time": {
+          "type": "DATETIME",
+          "description": "入庫日時"
+        },
+        "exit_time": {
+          "type": "DATETIME",
+          "description": "出庫日時"
+        },
+        "pay_arrears": {
+          "type": "INT",
+          "description": "未払精算金額",
+          "business_meaning": "未払いの駐車料金（円）"
+        },
+        "penalty": {
+          "type": "INT",
+          "description": "違約金",
+          "business_meaning": "違約金（円）"
+        },
+        "pay_req_flg": {
+          "type": "TINYINT",
+          "description": "未払い請求フラグ",
+          "business_meaning": "0=請求しない、1=請求する"
+        },
+        "pay_finished_flg": {
+          "type": "TINYINT",
+          "description": "支払い完了フラグ",
+          "business_meaning": "0=精算未完了、1=精算完了"
+        },
+        "auto_delete_flg": {
+          "type": "TINYINT(1)",
+          "description": "自動削除フラグ",
+          "business_meaning": "0=未削除、1=論理削除済"
+        }
+      }
+    },
+    "paid_arrears": {
+      "description": "未払い精算情報テーブル",
+      "business_context": "未払いの支払い記録を管理。どの店舗でいつ支払われたかを記録。",
+      "columns": {
+        "id": {
+          "type": "INT",
+          "description": "支払いID（主キー）"
+        },
+        "unpaid_information_id": {
+          "type": "INT",
+          "description": "共通未払い情報ID（外部キー）"
+        },
+        "unpaid_id": {
+          "type": "INT",
+          "description": "未払いID"
+        },
+        "occurred_server_id": {
+          "type": "INT",
+          "description": "未払い発生店舗ID"
+        },
+        "paid_server_id": {
+          "type": "INT",
+          "description": "支払い店舗ID"
+        },
+        "paid_time": {
+          "type": "DATETIME",
+          "description": "支払い日時"
+        },
+        "paid_arrears": {
+          "type": "INT",
+          "description": "支払金額（円）"
+        },
+        "agency_id": {
+          "type": "INT",
+          "description": "決済代行会社ID",
+          "business_meaning": "キャッシュレス決済の場合のみ使用"
+        },
+        "pay_method": {
+          "type": "VARCHAR(32)",
+          "description": "支払い方法"
+        },
+        "brand": {
+          "type": "VARCHAR(32)",
+          "description": "決済ブランド"
+        },
+        "payment_type": {
+          "type": "INT",
+          "description": "支払い種別",
+          "business_meaning": "0=精算機、1=モバイル、2=未払い精算サイト"
+        },
+        "other_store_paid_flg": {
+          "type": "TINYINT(1)",
+          "description": "別店舗支払いフラグ",
+          "business_meaning": "0=同一店舗、1=別店舗"
+        }
+      }
+    },
+    "request_client_stores": {
+      "description": "依頼ツール用駐車場情報テーブル",
+      "business_context": "クライアント向け依頼ツールで使用する駐車場設定を管理。",
+      "columns": {
+        "id": {
+          "type": "BIGINT",
+          "description": "ID（主キー）"
+        },
+        "store_id": {
+          "type": "BIGINT",
+          "description": "物件ID（外部キー）"
+        },
+        "name": {
+          "type": "VARCHAR(255)",
+          "description": "駐車場名"
+        },
+        "address": {
+          "type": "VARCHAR(255)",
+          "description": "アドレス"
+        },
+        "port": {
+          "type": "VARCHAR(255)",
+          "description": "ポート"
+        },
+        "is_deletion_right_holder": {
+          "type": "TINYINT",
+          "description": "削除権限",
+          "business_meaning": "0=未設定、1=非権利者、2=権利者"
+        },
+        "white_limit": {
+          "type": "INT",
+          "description": "精算不要車両登録上限"
+        },
+        "gate_control": {
+          "type": "TINYINT(1)",
+          "description": "入場許可車両登録画面表示",
+          "business_meaning": "0=表示しない、1=表示する"
+        },
+        "outage_flg": {
+          "type": "TINYINT(1)",
+          "description": "停止フラグ"
+        },
+        "alert_notification_flag": {
+          "type": "TINYINT(1)",
+          "description": "大型バスアラート機能表示",
+          "business_meaning": "0=表示しない、1=表示する"
+        },
+        "accessible_vehicle_flag": {
+          "type": "TINYINT(1)",
+          "description": "障害者車両表示",
+          "business_meaning": "0=表示しない、1=表示する"
+        },
+        "toll_monthly_flag": {
+          "type": "TINYINT(1)",
+          "description": "月極・定期車両表示",
+          "business_meaning": "0=表示しない、1=表示する"
+        }
+      }
+    },
+    "request_client_users": {
+      "description": "依頼ツールアカウントテーブル",
+      "business_context": "依頼ツールにログインするユーザーアカウントを管理。",
+      "columns": {
+        "id": {
+          "type": "BIGINT",
+          "description": "ID（主キー）"
+        },
+        "name": {
+          "type": "VARCHAR(255)",
+          "description": "アカウント名"
+        },
+        "email": {
+          "type": "VARCHAR(255)",
+          "description": "メールアドレス"
+        },
+        "role": {
+          "type": "INT",
+          "description": "権限",
+          "business_meaning": "1=admin、2=一般"
+        },
+        "registration_mail_flg": {
+          "type": "TINYINT(1)",
+          "description": "依頼登録時通知設定",
+          "business_meaning": "0=送信しない、1=送信する"
+        },
+        "error_mail_flg": {
+          "type": "TINYINT(1)",
+          "description": "依頼登録失敗時通知設定",
+          "business_meaning": "0=送信しない、1=送信する"
+        }
+      }
+    },
+    "agencies": {
+      "description": "決済代行会社テーブル",
+      "business_context": "キャッシュレス決済で使用する決済代行会社を管理。",
+      "columns": {
+        "id": {
+          "type": "INT",
+          "description": "ID（主キー）"
+        },
+        "label": {
+          "type": "TEXT",
+          "description": "決済代行会社名"
+        }
+      }
+    },
+    "delete_request_histories": {
+      "description": "請求取消依頼テーブル",
+      "business_context": "ユーザーからの請求取消依頼を管理。",
+      "columns": {
+        "id": {
+          "type": "BIGINT",
+          "description": "ID（主キー）"
+        },
+        "request_client_user_id": {
+          "type": "BIGINT",
+          "description": "ユーザーID"
+        },
+        "request_client_store_id": {
+          "type": "BIGINT",
+          "description": "店舗ID"
+        },
+        "entrant_time": {
+          "type": "DATETIME",
+          "description": "削除対象日"
+        },
+        "car_number": {
+          "type": "VARCHAR(50)",
+          "description": "車両番号"
+        },
+        "car_place": {
+          "type": "VARCHAR(10)",
+          "description": "地域"
+        },
+        "car_class": {
+          "type": "VARCHAR(10)",
+          "description": "分類番号"
+        },
+        "car_kana": {
+          "type": "VARCHAR(5)",
+          "description": "かな"
+        },
+        "status": {
+          "type": "INT",
+          "description": "処理ステータス",
+          "business_meaning": "0=削除待ち、1=削除済み"
+        },
+        "target_kind": {
+          "type": "INT",
+          "description": "依頼種別",
+          "business_meaning": "0=1日分、1=期間指定、2=全期間"
+        },
+        "receipts": {
+          "type": "INT",
+          "description": "未受領金"
+        }
+      }
+    },
+    "parking_availabilities": {
+      "description": "駐車場空き状況テーブル",
+      "business_context": "30分単位での駐車場の空き状況を記録。",
+      "columns": {
+        "id": {
+          "type": "BIGINT",
+          "description": "ID（主キー）"
+        },
+        "parking_id": {
+          "type": "INT",
+          "description": "駐車場ID"
+        },
+        "aggregation_month": {
+          "type": "VARCHAR(255)",
+          "description": "集計月"
+        },
+        "aggregation_date": {
+          "type": "DATE",
+          "description": "集計日"
+        },
+        "stay_0000": {
+          "type": "INT",
+          "description": "00:00時点の空車室数"
+        }
+      },
+      "note": "stay_0000〜stay_2330まで30分刻みで空車室数を記録"
+    }
+  },
+  "glossary": {
+    "再課金猶予時間": "出庫後に再入庫した際、一定時間内であれば新たな課金が発生しない猶予期間（分単位）",
+    "ERPコード": "社内管理用の物件識別コード",
+    "ラベルID": "Webサーバー単位での物件識別に使用するID（labels.id）",
+    "未払い": "駐車料金を支払わずに出庫した記録",
+    "精算不要車両": "料金を請求しない車両（ホワイトリスト登録車両）",
+    "デフォルト値": "個別設定がない場合に適用されるシステム全体の標準値",
+    "gid": "サーバーグループID。3=ローカルサーバー、5=SSHサーバーなど",
+    "pid": "駐車場ID。ローカルサーバー上での駐車場識別番号"
+  },
+  "query_patterns": {
+    "identify_parking": {
+      "description": "駐車場を特定するパターン",
+      "patterns": [
+        {
+          "input_type": "名前",
+          "sql_pattern": "SELECT p.*, s.name as store_name FROM parkings p JOIN stores s ON p.store_id = s.id WHERE p.name LIKE ? LIMIT 10"
+        },
+        {
+          "input_type": "ERPコード",
+          "sql_pattern": "SELECT p.*, s.name as store_name FROM parkings p JOIN stores s ON p.store_id = s.id WHERE p.erp_code = ? LIMIT 1"
+        },
+        {
+          "input_type": "物件名",
+          "sql_pattern": "SELECT s.*, p.name as parking_name, p.erp_code FROM stores s LEFT JOIN parkings p ON s.id = p.store_id WHERE s.name LIKE ? LIMIT 10"
+        }
+      ]
+    },
+    "get_recharge_config": {
+      "description": "再課金猶予時間を取得するパターン",
+      "sql_pattern": "SELECT p.id, p.name, p.erp_code, p.default_re_charge_time, s.name as store_name FROM parkings p JOIN stores s ON p.store_id = s.id WHERE p.id = ? LIMIT 1"
+    },
+    "get_server_config": {
+      "description": "サーバー設定を取得するパターン",
+      "sql_pattern": "SELECT sv.*, l.label as parking_label FROM servers sv JOIN labels l ON sv.lid = l.id WHERE sv.id = ? LIMIT 1"
+    }
+  }
+}
