@@ -5,6 +5,7 @@ MySQL/Aurora への安全な読み取り専用接続を提供
 
 import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -13,6 +14,7 @@ import aiomysql
 from dotenv import load_dotenv
 
 from .sql_validator import validate_sql, ValidationError, RiskLevel
+from .query_history import QueryHistory
 
 load_dotenv()
 
@@ -75,11 +77,13 @@ class ReadOnlyDatabase:
     - クエリタイムアウト
     - 接続プール管理
     - 読み取り専用トランザクション
+    - クエリ履歴の記録
     """
 
-    def __init__(self, config: DatabaseConfig):
+    def __init__(self, config: DatabaseConfig, history: QueryHistory | None = None):
         self.config = config
         self._pool: aiomysql.Pool | None = None
+        self.history = history or QueryHistory()
 
     async def connect(self) -> None:
         """接続プールを初期化"""
@@ -126,7 +130,8 @@ class ReadOnlyDatabase:
         self,
         query: str,
         params: tuple | None = None,
-        validate: bool = True
+        validate: bool = True,
+        tool_name: str | None = None
     ) -> QueryResult:
         """
         読み取り専用クエリを実行
@@ -135,19 +140,36 @@ class ReadOnlyDatabase:
             query: 実行するSQLクエリ
             params: クエリパラメータ（プレースホルダー用）
             validate: SQLバリデーションを行うか
+            tool_name: 呼び出し元ツール名（履歴記録用）
 
         Returns:
             QueryResult: クエリ実行結果
         """
+        start_time = time.time()
+
         # 1. SQLバリデーション
         if validate:
             validation = validate_sql(query)
             if not validation.is_valid:
+                execution_time_ms = (time.time() - start_time) * 1000
+                error_msg = f"クエリが拒否されました: {validation.message}"
+
+                # 履歴に記録（バリデーション失敗）
+                self.history.add(
+                    query=query,
+                    params=list(params) if params else None,
+                    success=False,
+                    row_count=0,
+                    execution_time_ms=execution_time_ms,
+                    error_message=error_msg,
+                    tool_name=tool_name
+                )
+
                 return QueryResult(
                     success=False,
                     data=None,
                     row_count=0,
-                    message=f"クエリが拒否されました: {validation.message}"
+                    message=error_msg
                 )
             # サニタイズされたクエリを使用
             query = validation.sanitized_query or query
@@ -163,6 +185,18 @@ class ReadOnlyDatabase:
                     )
                     rows = await cursor.fetchall()
 
+                    execution_time_ms = (time.time() - start_time) * 1000
+
+                    # 履歴に記録（成功）
+                    self.history.add(
+                        query=query,
+                        params=list(params) if params else None,
+                        success=True,
+                        row_count=len(rows),
+                        execution_time_ms=execution_time_ms,
+                        tool_name=tool_name
+                    )
+
                     return QueryResult(
                         success=True,
                         data=list(rows),
@@ -172,25 +206,64 @@ class ReadOnlyDatabase:
                     )
 
         except asyncio.TimeoutError:
+            execution_time_ms = (time.time() - start_time) * 1000
+            error_msg = f"クエリがタイムアウトしました（{self.config.query_timeout}秒）"
+
+            self.history.add(
+                query=query,
+                params=list(params) if params else None,
+                success=False,
+                row_count=0,
+                execution_time_ms=execution_time_ms,
+                error_message=error_msg,
+                tool_name=tool_name
+            )
+
             return QueryResult(
                 success=False,
                 data=None,
                 row_count=0,
-                message=f"クエリがタイムアウトしました（{self.config.query_timeout}秒）"
+                message=error_msg
             )
         except aiomysql.Error as e:
+            execution_time_ms = (time.time() - start_time) * 1000
+            error_msg = f"データベースエラー: {e}"
+
+            self.history.add(
+                query=query,
+                params=list(params) if params else None,
+                success=False,
+                row_count=0,
+                execution_time_ms=execution_time_ms,
+                error_message=error_msg,
+                tool_name=tool_name
+            )
+
             return QueryResult(
                 success=False,
                 data=None,
                 row_count=0,
-                message=f"データベースエラー: {e}"
+                message=error_msg
             )
         except Exception as e:
+            execution_time_ms = (time.time() - start_time) * 1000
+            error_msg = f"予期しないエラー: {e}"
+
+            self.history.add(
+                query=query,
+                params=list(params) if params else None,
+                success=False,
+                row_count=0,
+                execution_time_ms=execution_time_ms,
+                error_message=error_msg,
+                tool_name=tool_name
+            )
+
             return QueryResult(
                 success=False,
                 data=None,
                 row_count=0,
-                message=f"予期しないエラー: {e}"
+                message=error_msg
             )
 
     async def find_parking_by_name(self, name: str) -> QueryResult:

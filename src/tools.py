@@ -258,7 +258,7 @@ class ParkingTools:
                 ("%東京%",)
             )
         """
-        result = await self.db.execute_query(query, params)
+        result = await self.db.execute_query(query, params, tool_name="execute_readonly_sql")
 
         if not result.success:
             return ToolResponse(
@@ -361,6 +361,133 @@ class ParkingTools:
             data={"suggestion": suggestion},
             message="クエリアプローチを提案しました",
             context="この提案を参考にクエリを生成してください"
+        )
+
+    # ========================================
+    # Tool: get_query_history
+    # ========================================
+    def get_query_history(
+        self,
+        limit: int = 20,
+        success_only: bool = False,
+        failed_only: bool = False,
+        keyword: str | None = None
+    ) -> ToolResponse:
+        """
+        クエリ実行履歴を取得する
+
+        Args:
+            limit: 取得件数（デフォルト20件）
+            success_only: 成功したクエリのみ
+            failed_only: 失敗したクエリのみ
+            keyword: クエリに含まれるキーワード
+
+        Returns:
+            ToolResponse: 履歴リスト
+        """
+        if keyword or success_only or failed_only:
+            entries = self.db.history.search(
+                keyword=keyword,
+                success_only=success_only,
+                failed_only=failed_only,
+                limit=limit
+            )
+        else:
+            entries = self.db.history.get_all(limit=limit)
+
+        history_data = [
+            {
+                "id": e.id,
+                "timestamp": e.timestamp,
+                "query": e.query[:100] + "..." if len(e.query) > 100 else e.query,
+                "success": e.success,
+                "row_count": e.row_count,
+                "execution_time_ms": e.execution_time_ms,
+                "error": e.error_message
+            }
+            for e in entries
+        ]
+
+        return ToolResponse(
+            success=True,
+            data=history_data,
+            message=f"{len(history_data)}件の履歴を取得しました"
+        )
+
+    # ========================================
+    # Tool: get_query_history_detail
+    # ========================================
+    def get_query_history_detail(self, history_id: int) -> ToolResponse:
+        """
+        クエリ履歴の詳細を取得する
+
+        Args:
+            history_id: 履歴ID
+
+        Returns:
+            ToolResponse: 履歴詳細
+        """
+        entry = self.db.history.get_by_id(history_id)
+
+        if not entry:
+            return ToolResponse(
+                success=False,
+                data=None,
+                message=f"履歴ID {history_id} が見つかりません"
+            )
+
+        return ToolResponse(
+            success=True,
+            data={
+                "id": entry.id,
+                "timestamp": entry.timestamp,
+                "query": entry.query,
+                "params": entry.params,
+                "success": entry.success,
+                "row_count": entry.row_count,
+                "execution_time_ms": entry.execution_time_ms,
+                "error_message": entry.error_message,
+                "tool_name": entry.tool_name
+            },
+            message="履歴詳細を取得しました",
+            context="このクエリを再実行するには execute_readonly_sql を使用してください"
+        )
+
+    # ========================================
+    # Tool: get_query_statistics
+    # ========================================
+    def get_query_statistics(self) -> ToolResponse:
+        """
+        クエリ実行の統計情報を取得する
+
+        Returns:
+            ToolResponse: 統計情報
+        """
+        stats = self.db.history.get_statistics()
+
+        return ToolResponse(
+            success=True,
+            data=stats,
+            message="クエリ統計を取得しました",
+            context=f"成功率: {stats['success_rate']}%, 平均実行時間: {stats['avg_execution_time_ms']}ms"
+        )
+
+    # ========================================
+    # Tool: clear_query_history
+    # ========================================
+    def clear_query_history(self) -> ToolResponse:
+        """
+        クエリ履歴をクリアする
+
+        Returns:
+            ToolResponse: 削除件数
+        """
+        count = self.db.history.clear()
+
+        return ToolResponse(
+            success=True,
+            data={"deleted_count": count},
+            message=f"{count}件の履歴を削除しました"
         )
 
 
@@ -472,6 +599,64 @@ TOOL_DEFINITIONS = [
                 }
             },
             "required": ["question"]
+        }
+    },
+    {
+        "name": "get_query_history",
+        "description": "実行されたSQLクエリの履歴を取得します。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "取得件数（デフォルト20件、最大100件）"
+                },
+                "success_only": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "成功したクエリのみ取得"
+                },
+                "failed_only": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "失敗したクエリのみ取得"
+                },
+                "keyword": {
+                    "type": "string",
+                    "description": "クエリに含まれるキーワードでフィルタ"
+                }
+            }
+        }
+    },
+    {
+        "name": "get_query_history_detail",
+        "description": "指定したIDのクエリ履歴の詳細（完全なSQL文、パラメータ等）を取得します。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "history_id": {
+                    "type": "integer",
+                    "description": "履歴ID"
+                }
+            },
+            "required": ["history_id"]
+        }
+    },
+    {
+        "name": "get_query_statistics",
+        "description": "クエリ実行の統計情報（成功率、平均実行時間など）を取得します。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "clear_query_history",
+        "description": "全てのクエリ履歴を削除します。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
         }
     }
 ]

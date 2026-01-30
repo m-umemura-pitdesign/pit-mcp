@@ -205,6 +205,21 @@ class ParkingMCPServer:
             result = self.tools.suggest_approach(
                 question=arguments.get("question", "")
             )
+        elif name == "get_query_history":
+            result = self.tools.get_query_history(
+                limit=arguments.get("limit", 20),
+                success_only=arguments.get("success_only", False),
+                failed_only=arguments.get("failed_only", False),
+                keyword=arguments.get("keyword")
+            )
+        elif name == "get_query_history_detail":
+            result = self.tools.get_query_history_detail(
+                history_id=arguments.get("history_id")
+            )
+        elif name == "get_query_statistics":
+            result = self.tools.get_query_statistics()
+        elif name == "clear_query_history":
+            result = self.tools.clear_query_history()
         else:
             return {
                 "success": False,
